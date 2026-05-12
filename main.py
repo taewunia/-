@@ -9,7 +9,7 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 
 
-device = "cuda" if torch.device.cuda.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"현재 사용중인 기기: {device}")
 
 EPOCH = 10
@@ -17,7 +17,17 @@ BATCH_SIZE = 64
 LEARNING_RATE = 0.001
 P = 0.3
 
-transform = transforms.Compose([
+train_transform = transforms.Compose([
+    transforms.Resize((96, 96)),
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.RandomRotation(15),
+    transforms.RandomAffine(0, shear=10, scale=(0.8, 1.2)),
+    transforms.ColorJitter(brightness=0.2, contrast=0.2),
+    transforms.ToTensor(),
+    transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+])
+
+test_transform = transforms.Compose([
     transforms.Resize((96, 96)),
     transforms.ToTensor(),
     transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
@@ -58,8 +68,8 @@ def visualize(model=None, device=None, DL=None):
         plt.show()
 
 
-train_stl_dataset = datasets.STL10('dataset', split='train', download=True, transform=transform)
-test_stl_dataset = datasets.STL10('dataset', split='test', download=True, transform=transform)
+train_stl_dataset = datasets.STL10('dataset', split='train', download=True, transform=train_transform)
+test_stl_dataset = datasets.STL10('dataset', split='test', download=True, transform=test_transform)
 
 train_DL = DataLoader(train_stl_dataset, batch_size=BATCH_SIZE, shuffle=True)
 test_DL = DataLoader(test_stl_dataset, batch_size=BATCH_SIZE, shuffle=False)
