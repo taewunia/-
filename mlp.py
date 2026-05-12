@@ -64,7 +64,7 @@ class MyModel(nn.Module): #nn.Module을 상속
             nn.ReLU(),
             nn.Linear(100, 100),
             nn.ReLU(),
-            nn.Linear(100, 100),
+            nn.Linear(100, 10),
             nn.ReLU()
         )
 
@@ -80,6 +80,7 @@ optimizer = optim.AdamW(model.parameters(), lr=0.01) #옵티마이저
 model.train() #학습모드(드롭아웃이 켜짐)
 
 test_loss_history = [] #그래프 그리기 위해 값을 기록해둘 빈 리스트
+train_loss_history = []
 for epoch in range(EPOCH): #반복횟수동안 학습 반복
     model.train()
     process_bar = tqdm(train_DL, desc=f'{epoch + 1}/{EPOCH}', colour='green') #학습 진행상태 체크 표시 함수
@@ -96,6 +97,8 @@ for epoch in range(EPOCH): #반복횟수동안 학습 반복
         optimizer.step() #가중치 업데이트
         tqdm.set_postfix(process_bar, loss=loss.item()) #진행바 업데이트(신경안써도됨)
         total_train_loss += loss.item() #토탈 loss값에 현재 loss값 추가
+        avg_train_loss += loss.item()
+        train_loss_history.append(loss.item())
 
     with torch.no_grad(): #테스트 코드(이때는 가중치 업데이트를 안해도 되기 떄문에 가중치 기록 다 끄는 코드)
         model.eval() #평가모드(드롭아웃 해제)

@@ -1,133 +1,184 @@
-import torch #파이토치
-import torchvision #데이터셋
-import torch.nn as nn #신경망 부품
-from torchvision import datasets, transforms #데이터셋과 전처리 불러오기
-import torch.optim as optim #옵티마이저
-import matplotlib.pyplot as plt #그래프 도구
-from torchmetrics import MetricCollection, Accuracy, F1Score #정확도 측정 도구
-from tqdm import tqdm #학습 로딩바
+import torch
+import torchvision
+import torch.nn as nn
+from torchvision import datasets, transforms
+import torch.optim as optim
+import matplotlib.pyplot as plt
+from torchmetrics import Accuracy
+from tqdm import tqdm
 from torch.utils.data import DataLoader
 
-device = "mps" if torch.backends.mps.is_available() else "cpu" #mps(맥북 그래픽카드 가속 이름)이 발견되면 mps 아니면 cpu
-print(f"현재 사용중인 기기:{device}")
-EPOCH = 70 #학습 반복 횟수
-BATCH_SIZE = 64 #모델에게 이미지를 한번에 몇장씩 묶어서 줄건지 보통 2의 제곱 사용
-LEARNING_RATE = 0.001
-#모델이 학습을 얼마나 빨리 할지 이 값이 높으면 학습이 빠르지만 제대로 되지 않음 이 값이 낮으면 학습은 느리거나 안되지만 정확도가 높아짐
-#쉽게 말하면 보폭, 예를 들자면 사람이 10미터 앞 목적지에 최대한 가까이 가는것(정확도를 높이는것)이 목표라 한다면 보폭(러닝레이트)가 높을수록 빠르게 목적지로 갈수있지만
-#10미터를 넘어가버리기 쉬움 하지만 보폭이 작다면 목적지까지 가는 시간이 느린 대신 더 정확히 10미터에 멈출 수 있음
-P = 0.3
-#드롭아웃(모델이 학습 데이터를 외워버리는걸 막기 위해 신경망 몇개를 강제로 꺼버리는데 그 확률 저건 30퍼센트라는 뜻
 
-transform = transforms.Compose([ #compose는 데이터 전처리를 한 모듈로 묶어주는 역할
-    transforms.Resize((28, 28)),  #데이터 사이즈를 28 x 28로 만들어줌
-    transforms.ToTensor(), #데이터를 텐서로 변환해줌
-    transforms.Normalize((0.1307,), (0.3081,)) #데이터 정규화(그리 중요한건 아님)
+device = "cuda" if torch.device.cuda.is_available() else "cpu"
+print(f"현재 사용중인 기기: {device}")
+
+EPOCH = 10
+BATCH_SIZE = 64
+LEARNING_RATE = 0.001
+P = 0.3
+
+transform = transforms.Compose([
+    transforms.Resize((96, 96)),
+    transforms.ToTensor(),
+    transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
 ])
 
-def visualize(model=None, device=None, DL=None):
-#ai가 데이터를 학습할때 어떤 특징을 학습하는지 보게 해주는 함순데 굳이 할 필요 없음 나중에 알려줄게
-    model = model.to(device)
-    sample, labels = next(iter(DL))  # b,c,h,w
-    sample = sample[0].unsqueeze(0).to(device)  # b,c,h,w
-    labele = labels[0].item()
 
-    output = model.linear1(sample)  # b,c,h,w
-    output = output.squeeze(0).cpu().numpy()  # c,h,w
-    fig, axes = plt.subplots(4, 4, figsize=(10, 10))
-    fig.suptitle(f"Layer 1 Feature Maps (Input Label: {labele})", fontsize=16, fontweight='bold')
-    for i, ax in enumerate(axes.flat):
-        if i < output.shape[0]:
+def visualize(model=None, device=None, DL=None):
+    model.eval()
+    with torch.no_grad():
+        sample, labels = next(iter(DL))
+        img_tensor = sample[0].unsqueeze(0).to(device)
+        label = labels[0].item()
+
+        classes = ['airplane', 'bird', 'car', 'cat', 'deer', 'dog', 'horse', 'monkey', 'ship', 'truck']
+
+        model_on_device = model.to(device)
+        output = model_on_device.layer1(img_tensor)
+        output = output.squeeze(0).cpu().numpy()
+
+        fig = plt.figure(figsize=(12, 10))
+        grid = plt.GridSpec(5, 4, hspace=0.4, wspace=0.3)
+
+        ax_main = fig.add_subplot(grid[0, :])
+        origin_img = sample[0].cpu().permute(1, 2, 0).numpy()
+        mean = [0.485, 0.456, 0.406]
+        std = [0.229, 0.224, 0.225]
+        origin_img = origin_img * std + mean
+        ax_main.imshow(origin_img.clip(0, 1))
+        ax_main.set_title(f"Original Image (Label: {classes[label]})", fontsize=14, fontweight='bold')
+        ax_main.axis('off')
+
+        for i in range(16):
+            ax = fig.add_subplot(grid[1 + i // 4, i % 4])
             ax.imshow(output[i], cmap='viridis')
             ax.axis('off')
-            ax.set_title(f"Filter {i + 1}")
-    plt.tight_layout()
-    plt.show()
+            ax.set_title(f"Filter {i + 1}", fontsize=10)
+
+        plt.show()
 
 
-train_mnist_dataset = datasets.MNIST('dataset', train=True, download=True, transform=transform) #데이터를 전처리 시켜 묶어주는 역할
-test_mnist_dataset = datasets.MNIST('dataset', train=False, download=True, transform=transform)
-#train과 download는 모듈에 내장되어있는 데이터를 쓰는거라 저거고 내 데이터를 가지고 학습을 시키고 싶으면
-#torch.utils.data.DataSet(root=' ', tramsform=)이렇게
+train_stl_dataset = datasets.STL10('dataset', split='train', download=True, transform=transform)
+test_stl_dataset = datasets.STL10('dataset', split='test', download=True, transform=transform)
 
-train_DL = DataLoader(train_mnist_dataset, batch_size=512, shuffle=True) #데이터셋을 배치사이즈에 맞게 세팅해주는 함수
-test_DL = DataLoader(test_mnist_dataset, batch_size=512, shuffle=False)
-#학습용은 순서를 외워버릴수도 있기 때문에 shuffle(데이터 순서 섞기)를
-#활성화 해줘야하고 테스트 데이터셋은 항상 일정한 기준을 가지고 모델에 들어가야 정확도 차이를 비교해볼수 있으므로 shuffle은 꺼야함
+train_DL = DataLoader(train_stl_dataset, batch_size=BATCH_SIZE, shuffle=True)
+test_DL = DataLoader(test_stl_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
 
-class MyModel(nn.Module): #nn.Module을 상속
+class MyModel(nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear1 = nn.Sequential( #senquential은 여러 신경망 부품을 묶어주는 역헐
-            nn.Conv2d(in_channels=1, out_channels=16, kernel_size=3, padding=1),
-            #컨브레이어(상세히 몰라도 됨 지금은 그냥 어떤식으로 코드가 짜여있는지 파이프라인만)
-            nn.BatchNorm2d(16),#배치 정규화
-            nn.ReLU(), #활성함수
-            nn.MaxPool2d(kernel_size=2, stride=2) #해상도 절반으로 줄이기
-        )
-
-        self.linear2 = nn.Sequential(
-            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
+        self.layer1 = nn.Sequential(
+            nn.Conv2d(3, 16, 3, 1, 1),
+            nn.BatchNorm2d(16),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)  # 7 x 7
+            nn.MaxPool2d(2, 2)
+        )
+        self.layer2 = nn.Sequential(
+            nn.Conv2d(16, 32, 3, 1, 1),
+            nn.ReLU(),
+            nn.BatchNorm2d(32),
+            nn.MaxPool2d(2, 2)
+        )
+        self.layer3 = nn.Sequential(
+            nn.Conv2d(32, 64, 3, 1, 1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2)
+        )
+        self.layer4 = nn.Sequential(
+            nn.Conv2d(64, 128, 3, 1, 1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2)
+        )
+        self.layer5 = nn.Sequential(
+            nn.Conv2d(128, 256, 3, 1, 1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2)
+        )
+        self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc_layer = nn.Sequential(
+            nn.Dropout(P),
+            nn.Linear(256, 10)
         )
 
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-
-        self.fc = nn.Sequential(
-            nn.Dropout(p=0.5),
-            nn.Linear(in_features=32, out_features=10),)
-
-    def forward(self, x): #여기서 만들어둔 신경망 모듈을 조립
-        x = self.linear1(x)
-        x = self.linear2(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        return x
+    def forward(self, x):
+        out = self.layer1(x)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.layer4(out)
+        out = self.layer5(out)
+        out = self.avg_pool(out)
+        out_flatten = out.view(out.size(0), -1)
+        output = self.fc_layer(out_flatten)
+        return output
 
 
-model = MyModel().to(device) #모델을 gpu로 옮김(gpu 가속을 위해)
-criterion = nn.CrossEntropyLoss() #손실함수
-optimizer = optim.AdamW(model.parameters(), lr=0.01) #옵티마이저
-model.train() #학습모드(드롭아웃이 켜짐)
+model = MyModel().to(device)
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
+accuracy_metric = Accuracy(task="multiclass", num_classes=10).to(device)
 
-test_loss_history = [] #그래프 그리기 위해 값을 기록해둘 빈 리스트
-for epoch in range(EPOCH): #반복횟수동안 학습 반복
+train_loss_history, test_loss_history = [], []
+train_acc_history, test_acc_history = [], []
+
+for epoch in range(EPOCH):
     model.train()
-    process_bar = tqdm(train_DL, desc=f'{epoch + 1}/{EPOCH}', colour='green') #학습 진행상태 체크 표시 함수
+    train_bar = tqdm(train_DL, desc=f'Epoch {epoch + 1}/{EPOCH} [Train]', colour='green')
     total_train_loss = 0
-    total_test_loss = 0
-    avg_train_loss = 0
-    avg_test_loss = 0
-    for x, y in process_bar: #데이터 로더에서 데이터와 정답값 가져오기
-        x, y = x.to(device), y.to(device) #데이터와 정답값도 gpu로 보내줘야지 학습 가능(모델이 gpu에 위치해있기 때문)
-        output = model(x) #모델 결과값
-        loss = criterion(output, y) #결과값과 정답값 비교후 오차 loss 변수에 저장
-        optimizer.zero_grad() #가중치 기록 초기화(초기화 안하면 저번 에포치 기록까지 반영되기 때문)
-        loss.backward() #어느 부분에서 오차가 크게 증가했는지(신경망 부품별로 누가 책임이 큰지, 어떤거의 가중치를 바꿔야 loss값이 크게 줄어드는지 파악)
-        optimizer.step() #가중치 업데이트
-        tqdm.set_postfix(process_bar, loss=loss.item()) #진행바 업데이트(신경안써도됨)
-        total_train_loss += loss.item() #토탈 loss값에 현재 loss값 추가
+    accuracy_metric.reset()
 
-    with torch.no_grad(): #테스트 코드(이때는 가중치 업데이트를 안해도 되기 떄문에 가중치 기록 다 끄는 코드)
-        model.eval() #평가모드(드롭아웃 해제)
-        test_process_bar = tqdm(test_DL, desc=f'{epoch + 1}', colour='red')
-        for x, y in test_process_bar: #평가 데이터로더에서 데이터와 정답값 가져오기
+    for x, y in train_bar:
+        x, y = x.to(device), y.to(device)
+        output = model(x)
+        loss = criterion(output, y)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        total_train_loss += loss.item()
+        accuracy_metric.update(output, y)
+        train_bar.set_postfix(loss=loss.item())
+
+    avg_train_loss = total_train_loss / len(train_DL)
+    train_acc = accuracy_metric.compute().item()
+
+    model.eval()
+    test_bar = tqdm(test_DL, desc=f'Epoch {epoch + 1}/{EPOCH} [Test]', colour='red', leave=False)
+    total_test_loss = 0
+    accuracy_metric.reset()
+
+    with torch.no_grad():
+        for x, y in test_bar:
             x, y = x.to(device), y.to(device)
             output = model(x)
             loss = criterion(output, y)
             total_test_loss += loss.item()
-            tqdm.set_postfix(test_process_bar, loss=loss.item())
+            accuracy_metric.update(output, y)
+            test_bar.set_postfix(loss=loss.item())
 
-        visualize(model=model, device=device, DL=test_DL)
-
-    avg_train_loss = total_train_loss / len(train_DL)
+    visualize(model=model, device=device, DL=test_DL)
     avg_test_loss = total_test_loss / len(test_DL)
-    tqdm.write(f"\n{avg_train_loss:.3f}")
-    tqdm.write(f"{avg_test_loss:.3f}")
+    test_acc = accuracy_metric.compute().item()
 
+    train_loss_history.append(avg_train_loss)
+    test_loss_history.append(avg_test_loss)
+    train_acc_history.append(train_acc)
+    test_acc_history.append(test_acc)
 
+    tqdm.write(
+        f"➔ Result: Train Loss {avg_train_loss:.4f}, Acc {train_acc * 100:.2f}% | Test Loss {avg_test_loss:.4f}, Acc {test_acc * 100:.2f}%")
 
+plt.figure(figsize=(14, 5))
+plt.subplot(1, 2, 1)
+plt.plot(train_loss_history, label='Train Loss')
+plt.plot(test_loss_history, label='Test Loss')
+plt.title('Loss')
+plt.legend()
+plt.subplot(1, 2, 2)
+plt.plot(train_acc_history, label='Train Acc')
+plt.plot(test_acc_history, label='Test Acc')
+plt.title('Accuracy')
+plt.legend()
+plt.show()
